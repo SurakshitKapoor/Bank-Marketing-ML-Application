@@ -26,63 +26,84 @@ class FeatureEngineering:
         try:
             logger.info("Feature engineering started")
 
-            # Age group
+            # -----------------------------
+            # Age Group Feature
+            # -----------------------------
             if self.config.create_age_group:
                 df["age_group"] = pd.cut(
                     df["age"],
                     bins=[0, 30, 50, 100],
                     labels=["young", "mid_age", "senior"]
-                )
+                ).astype("category")
+
                 logger.info("Feature created: age_group")
 
-            # Previous campaign success
+            # -----------------------------
+            # Previous Campaign Success
+            # -----------------------------
             df["is_previous_success"] = (
                 df["previous_campaign_outcome"] == "successful"
-            ).astype(int)
+            ).astype("category")
 
             logger.info("Feature created: is_previous_success")
 
-            # Call duration bucket
+            # -----------------------------
+            # Call Duration Bucket
+            # -----------------------------
             if self.config.create_call_duration_bucket:
                 df["call_duration_bucket"] = pd.cut(
                     df["call_duration"],
                     bins=[-1, 60, 300, np.inf],
                     labels=["short", "medium", "long"]
-                )
+                ).astype("category")
+
                 logger.info("Feature created: call_duration_bucket")
 
-            # High call frequency
+            # -----------------------------
+            # High Call Frequency
+            # -----------------------------
             df["is_high_call_frequency"] = (
                 df["call_frequency"] > df["call_frequency"].median()
-            ).astype(int)
+            ).astype("category")
 
             logger.info("Feature created: is_high_call_frequency")
 
-            # Contact via mobile
+            # -----------------------------
+            # Contacted via Mobile
+            # -----------------------------
             df["contacted_via_mobile"] = (
                 df["communication_channel"] == "mobile"
-            ).astype(int)
+            ).astype("category")
 
             logger.info("Feature created: contacted_via_mobile")
 
-            # Weekend call
+            # -----------------------------
+            # Weekend Call
+            # -----------------------------
             df["is_weekend_call"] = df["call_day"].apply(
                 lambda x: 1 if x in [6, 7] else 0
-            )
+            ).astype("category")
 
             logger.info("Feature created: is_weekend_call")
 
-            # Call intensity
+            # -----------------------------
+            # Call Intensity (numeric)
+            # -----------------------------
             df["call_intensity"] = df["call_duration"] / df["call_frequency"]
 
             logger.info("Feature created: call_intensity")
 
-            # Contact efficiency
-            df["contact_efficiency"] = np.where(
-                (df["call_duration"] > df["call_duration"].median()) &
-                (df["call_frequency"] <= df["call_frequency"].median()),
-                1, 0
-            )
+            # -----------------------------
+            # Contact Efficiency
+            # -----------------------------
+            df["contact_efficiency"] = pd.Series(
+                np.where(
+                    (df["call_duration"] > df["call_duration"].median()) &
+                    (df["call_frequency"] <= df["call_frequency"].median()),
+                    1, 0
+                ),
+                index=df.index
+            ).astype("category")
 
             logger.info("Feature created: contact_efficiency")
 
@@ -94,6 +115,10 @@ class FeatureEngineering:
             logger.error("Error during feature engineering")
             raise CustomException(e, sys)
 
+
+# ----------------------------------
+# Test Pipeline
+# ----------------------------------
 
 if __name__ == "__main__":
 
