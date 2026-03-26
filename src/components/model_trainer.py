@@ -1,5 +1,6 @@
 
 
+from operator import le
 import sys
 import os
 import pickle
@@ -17,6 +18,7 @@ from src.components.data_ingestion import DataIngestion
 from src.utils.logger import logger
 from src.utils.exception import CustomException
 from src.components.data_preprocessing import DataPreprocessing
+from src.components.save_artifacts import ArtifactSaver
 
 
 @dataclass
@@ -29,7 +31,7 @@ class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig = ModelTrainerConfig()):
         self.config = config
 
-    def train_model(self, X_train, y_train, X_test, y_test):
+    def train_model(self, X_train, y_train, X_test, y_test, scaler, ohe, le):
 
         try:
 
@@ -66,6 +68,11 @@ class ModelTrainer:
 
             logger.info(f"Model saved at {self.config.trained_model_path}")
 
+            # saving all preprocessing artifacts
+            saver = ArtifactSaver()
+            saver.save_artifacts(scaler, ohe, le)
+            logger.info("All preprocessing artifacts saved successfully")
+            
             return accuracy, recall
 
         except Exception as e:
@@ -98,7 +105,10 @@ if __name__ == "__main__":
             X_train,
             y_train,
             X_test,
-            y_test
+            y_test,
+            scaler,
+            ohe,
+            le
         )
 
         print("Accuracy:", accuracy)
