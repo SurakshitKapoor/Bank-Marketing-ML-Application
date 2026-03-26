@@ -27,10 +27,12 @@ class DataIngestion:
 
             logger.info(f"Reading dataset from {self.config.data_path}")
 
+            # reading the file
             df = pd.read_csv(self.config.data_path)
 
             logger.info(f"Dataset loaded successfully | Shape: {df.shape}")
 
+            # return the loaded file
             return df
 
         except Exception as e:
@@ -39,6 +41,7 @@ class DataIngestion:
         
     
 
+# for testing this file working
 if __name__ == "__main__":
     ingestion = DataIngestion()
     df = ingestion.load_data()
