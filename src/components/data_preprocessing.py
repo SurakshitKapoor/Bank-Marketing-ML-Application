@@ -1,24 +1,23 @@
 
 
 import sys
+import os
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from sklearn.model_selection import train_test_split
+
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
 
 from src.utils.logger import logger
 from src.utils.exception import CustomException
-from src.components.data_ingestion import DataIngestion
-from src.components.data_cleaning import DataCleaning
-from src.components.feature_engineering import FeatureEngineering
+from src.utils.file_ops import save_object
 
 
 @dataclass
 class DataPreprocessingConfig:
-    test_size: float = 0.2
-    random_state: int = 42
-    target_column: str = "conversion_status"
+    artifacts_dir: str = os.path.join("artifacts")
+    final_data_dir: str = os.path.join("data", "final")
+    skew_threshold: float = 1.0
 
 
 class DataPreprocessing:
@@ -26,73 +25,56 @@ class DataPreprocessing:
     def __init__(self, config: DataPreprocessingConfig = DataPreprocessingConfig()):
         self.config = config
 
-    def preprocess_data(self, df: pd.DataFrame):
+    def preprocess_data(self, X_train: pd.DataFrame, X_test: pd.DataFrame,
+                        y_train: pd.Series, y_test: pd.Series):
 
         try:
+
             logger.info("Data preprocessing started")
 
-            # -----------------------------
-            # Separate input and target
-            # -----------------------------
-            X = df.drop(columns=self.config.target_column)
-            y = df[self.config.target_column]
-
-            logger.info("Separated features and target")
+            os.makedirs(self.config.artifacts_dir, exist_ok=True)
 
             # -----------------------------
-            # Train test split
-            # -----------------------------
-            X_train, X_test, y_train, y_test = train_test_split(
-                X,
-                y,
-                test_size=self.config.test_size,
-                random_state=self.config.random_state
-            )
-
-            logger.info(f"Train shape: {X_train.shape}")
-            logger.info(f"Test shape: {X_test.shape}")
-
-            # -----------------------------
-            # Identify column types
+            # Detect column types
             # -----------------------------
             categorical_cols = X_train.select_dtypes(
                 include=["object", "category"]
-            ).columns
+            ).columns.tolist()
 
             numerical_cols = X_train.select_dtypes(
-                include="number"
-            ).columns
+                include=["number"]
+            ).columns.tolist()
 
-            logger.info(f"Categorical columns: {list(categorical_cols)}")
-            logger.info(f"Numerical columns: {list(numerical_cols)}")
+            logger.info(f"Categorical columns: {categorical_cols}")
+            logger.info(f"Numerical columns: {numerical_cols}")
 
+            
             # -----------------------------
-            # One Hot Encoding
+            # Skewness handling
             # -----------------------------
-            ohe = OneHotEncoder(drop="first", handle_unknown="ignore")
+            skew_cols = []
 
-            X_train_enc = ohe.fit_transform(X_train[categorical_cols])
-            X_test_enc = ohe.transform(X_test[categorical_cols])
+            for col in numerical_cols:
+                if abs(X_train[col].skew()) > self.config.skew_threshold:
+                    skew_cols.append(col)
 
-            logger.info("Categorical features encoded")
+            logger.info(f"Highly skewed columns: {skew_cols}")
 
+            for col in skew_cols:
+                X_train[col] = np.log1p(X_train[col])
+                X_test[col] = np.log1p(X_test[col])
+
+            logger.info("Log transformation applied")
+
+            
             # -----------------------------
-            # Label Encoding target
-            # -----------------------------
-            le = LabelEncoder()
-
-            y_train = le.fit_transform(y_train)
-            y_test = le.transform(y_test)
-
-            logger.info("Target variable encoded")
-
-            # -----------------------------
-            # Outlier Handling (Winsorization)
+            # Outlier clipping
             # -----------------------------
             for col in numerical_cols:
 
                 Q1 = X_train[col].quantile(0.25)
                 Q3 = X_train[col].quantile(0.75)
+
                 IQR = Q3 - Q1
 
                 lower = Q1 - 1.5 * IQR
@@ -101,82 +83,180 @@ class DataPreprocessing:
                 X_train[col] = X_train[col].clip(lower, upper)
                 X_test[col] = X_test[col].clip(lower, upper)
 
-            logger.info("Outliers handled using winsorization")
+            logger.info("Outliers handled using IQR clipping")
 
+            
+            
             # -----------------------------
-            # Feature Scaling
+            # One Hot Encoding
+            # -----------------------------
+            ohe = OneHotEncoder(
+                drop="first",
+                handle_unknown="ignore",
+                sparse_output=False
+            )
+
+            X_train_enc = ohe.fit_transform(X_train[categorical_cols])
+            X_test_enc = ohe.transform(X_test[categorical_cols])
+
+            ohe_cols = ohe.get_feature_names_out(categorical_cols)
+
+            X_train_enc_df = pd.DataFrame(
+                X_train_enc,
+                columns=ohe_cols,
+                index=X_train.index
+            )
+
+            X_test_enc_df = pd.DataFrame(
+                X_test_enc,
+                columns=ohe_cols,
+                index=X_test.index
+            )
+
+            logger.info("Categorical features encoded")
+
+            
+            
+            # -----------------------------
+            # Scaling numerical features
             # -----------------------------
             scaler = StandardScaler()
 
             X_train_sc = scaler.fit_transform(X_train[numerical_cols])
             X_test_sc = scaler.transform(X_test[numerical_cols])
 
+            X_train_sc_df = pd.DataFrame(
+                X_train_sc,
+                columns=numerical_cols,
+                index=X_train.index
+            )
+
+            X_test_sc_df = pd.DataFrame(
+                X_test_sc,
+                columns=numerical_cols,
+                index=X_test.index
+            )
+
             logger.info("Numerical features scaled")
 
+            
+            
             # -----------------------------
-            # Combine features
+            # Merge encoded + scaled
             # -----------------------------
-            # -----------------------------
+            X_train_final = pd.concat(
+                [X_train_sc_df, X_train_enc_df],
+                axis=1
+            )
 
-            X_train_final = np.hstack((X_train_sc, X_train_enc.toarray()))
-            X_test_final = np.hstack((X_test_sc, X_test_enc.toarray()))
-
-            # -----------------------------
-            # Create feature names
-            # -----------------------------
-            ohe_feature_names = ohe.get_feature_names_out(categorical_cols)
-
-            final_feature_names = list(numerical_cols) + list(ohe_feature_names)
-
-            logger.info(f"Total final features: {len(final_feature_names)}")
-            logger.info(f"Feature names: {final_feature_names}")
-
-            # Convert to DataFrame for readability
-            X_train_final = pd.DataFrame(X_train_final, columns=final_feature_names)
-            X_test_final = pd.DataFrame(X_test_final, columns=final_feature_names)
+            X_test_final = pd.concat(
+                [X_test_sc_df, X_test_enc_df],
+                axis=1
+            )
 
             logger.info(f"Final training shape: {X_train_final.shape}")
             logger.info(f"Final testing shape: {X_test_final.shape}")
 
-            logger.info("Data preprocessing completed successfully")
+            
+            
+            # -----------------------------
+            # Encode target
+            # -----------------------------
+            le = LabelEncoder()
 
-            return (
-                X_train_final,
-                X_test_final,
-                y_train,
-                y_test,
+            y_train = le.fit_transform(y_train)
+            y_test = le.transform(y_test)
+
+            logger.info("Target encoded")
+            
+
+            
+            
+            # -----------------------------
+            # Save final datasets
+            # -----------------------------
+            
+            os.makedirs(self.config.final_data_dir, exist_ok=True)
+            
+            X_train_final.to_csv(
+            os.path.join(self.config.final_data_dir, "X_train_final.csv"),
+                index=False )
+            
+            X_test_final.to_csv(
+            os.path.join(self.config.final_data_dir, "X_test_final.csv"),
+                index=False )
+            
+            pd.DataFrame(y_train, columns=["target"]).to_csv(
+                os.path.join(self.config.final_data_dir, "y_train.csv"),
+                index=False )
+            
+            pd.DataFrame(y_test, columns=["target"]).to_csv(
+                os.path.join(self.config.final_data_dir, "y_test.csv"),
+                index=False )
+            
+            
+            
+            
+            # -----------------------------
+            # Save artifacts
+            # -----------------------------
+            save_object(
                 ohe,
-                scaler,
-                le,
-                numerical_cols,
-                categorical_cols
+                os.path.join(self.config.artifacts_dir, "encoder.pkl")
             )
 
+            save_object(
+                scaler,
+                os.path.join(self.config.artifacts_dir, "scaler.pkl")
+                
+            )
+
+            save_object(
+                le,
+                os.path.join(self.config.artifacts_dir, "label_encoder.pkl")
+                
+            )
+
+            logger.info("Artifacts saved successfully")
+
+            return X_train_final, X_test_final, y_train, y_test
+
         except Exception as e:
-            logger.error("Error occurred during data preprocessing")
+            logger.error("Error during preprocessing")
             raise CustomException(e, sys)
 
 
-# -----------------------------
-# Test Pipeline
-# -----------------------------
+
+# ---------------------------------------
+# Pipeline Test
+# ---------------------------------------
 if __name__ == "__main__":
 
     try:
+
+        from src.components.data_ingestion import DataIngestion
+        from src.components.data_cleaning import DataCleaning
+        from src.components.feature_engineering import FeatureEngineering
+
         ingestion = DataIngestion()
         df = ingestion.load_data()
 
         cleaner = DataCleaning()
-        clean_df = cleaner.clean_data(df)
+        X_train, X_test, y_train, y_test = cleaner.clean_and_split(df)
 
         fe = FeatureEngineering()
-        feature_df = fe.engineer_features(clean_df)
+        X_train_fe, X_test_fe, y_train, y_test = fe.engineer_features(
+            X_train, X_test, y_train, y_test
+        )
 
         preprocessor = DataPreprocessing()
-        X_train, X_test, y_train, y_test, *_ = preprocessor.preprocess_data(feature_df)
 
-        print("Train Shape:", X_train.shape)
-        print("Test Shape:", X_test.shape)
+        X_train_final, X_test_final, y_train, y_test = preprocessor.preprocess_data(
+            X_train_fe, X_test_fe, y_train, y_test
+        )
+
+        print("Final Train Shape:", X_train_final.shape)
+        print("Final Test Shape:", X_test_final.shape)
 
     except Exception as e:
         raise CustomException(e, sys)
