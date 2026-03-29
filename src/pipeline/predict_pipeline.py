@@ -159,10 +159,11 @@ class PredictPipeline:
 
             # Prediction
             preds = self.model.predict(X_final)
-
+            probs = self.model.predict_proba(X_final)
             preds = self.label_encoder.inverse_transform(preds)
-
-            return preds
+            conversion_prob = probs[0][list(self.label_encoder.classes_).index("converted")]            
+            return preds[0], conversion_prob
+        
 
         except Exception as e:
             raise CustomException(e, sys)

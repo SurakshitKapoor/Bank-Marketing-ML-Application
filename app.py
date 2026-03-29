@@ -131,17 +131,48 @@ if submitted:
 
     df = data.get_data_as_dataframe()
 
+    # pipeline = PredictPipeline()
+
+    # prediction = pipeline.predict(df)[0]
+
+    # st.divider()
+
+    # if prediction == "converted":
+    #     st.success("✅ Customer is likely to subscribe to the term deposit.")
+    # else:
+    #     st.error("❌ Customer is unlikely to subscribe.")
+
+    # st.subheader("Input Summary")
+
+    # st.dataframe(df)
+    
     pipeline = PredictPipeline()
 
-    prediction = pipeline.predict(df)[0]
+    prediction, probability = pipeline.predict(df)
+
+    score = round(probability * 100,2)
 
     st.divider()
 
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("Prediction", prediction.upper())
+
+    with col2:
+        st.metric("Conversion Probability", f"{probability:.2%}")
+
+    with col3:
+        st.metric("Conversion Score", f"{score}/100")
+
+    st.subheader("Conversion Likelihood")
+
+    st.progress(score/100)
+
     if prediction == "converted":
-        st.success("✅ Customer is likely to subscribe to the term deposit.")
+        st.success("Customer is highly likely to subscribe.")
     else:
-        st.error("❌ Customer is unlikely to subscribe.")
+        st.warning("Customer is unlikely to subscribe.")
 
     st.subheader("Input Summary")
-
     st.dataframe(df)
