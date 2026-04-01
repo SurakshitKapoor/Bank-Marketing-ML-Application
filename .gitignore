@@ -7,3 +7,5 @@ models/
 .env
 data/
 # artifacts/
+
+.ipynb_checkpoints/

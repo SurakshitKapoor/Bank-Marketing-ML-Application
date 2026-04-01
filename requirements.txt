@@ -8,3 +8,8 @@ matplotlib
 seaborn
 gunicorn
 streamlit
+
+ollama
+langchain
+shap
+langchain-community
