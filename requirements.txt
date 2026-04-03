@@ -9,6 +9,8 @@ seaborn
 gunicorn
 streamlit
 
+requests
+
 ollama
 langchain
 shap
